@@ -45,8 +45,11 @@ function loginView() {
     <label>Clave<input name="password" type="password" autocomplete="current-password" required></label>
     <p class="err" id="le" role="alert"></p>
     <button class="btn">Entrar</button>
-    ${st.api.mode === 'demo' ? '<p class="muted">Modo demo: poné "tesorero" en el mail para ver la vista del tesorero.</p>' : ''}
-  </form><p class="foot">Hecho por DG Soluciones IT</p>`;
+  </form>
+  <section class="card mt"><h3>Probá la demo</h3><p class="muted">Datos de ejemplo, inventados. No hace falta usuario.</p>
+    <div class="actions mt"><a class="btn sm" href="?demo&as=socio">Entrar como socio</a><a class="btn sm ghost" href="?demo&as=tesorero">Entrar como tesorero</a></div></section>
+  <p class="foot">Un regalo de DG Soluciones IT para Top Serrano</p>`;
+  if (st.api.mode === 'demo' && params.get('as')) { st.api.signIn(params.get('as') + '@demo').then(u => { st.user = u; loadAll(); }); return; }
   $('#lf').onsubmit = async e => {
     e.preventDefault(); const f = new FormData(e.target);
     try { st.user = await st.api.signIn(f.get('email').trim(), f.get('password')); await loadAll(); }
@@ -60,7 +63,7 @@ function render() {
   tabs.hidden = false; tabs.style.setProperty('--n', t.length);
   tabs.innerHTML = t.map(([k, l]) => `<a href="#" data-v="${k}" ${st.view === k ? 'aria-current="page"' : ''}>${l}</a>`).join('');
   tabs.querySelectorAll('a').forEach(a => a.onclick = e => { e.preventDefault(); st.view = a.dataset.v; render(); });
-  const head = `<header class="top"><img src="logo-club.png" alt="" width="36" height="36"><h2>${esc(st.data.club.name)}</h2><button class="pill" id="out">Salir</button></header>`;
+  const head = `${st.api.mode === 'demo' ? '<p class="demo-b">Demo con datos de ejemplo</p>' : ''}<header class="top"><img src="logo-club.png" alt="" width="36" height="36"><h2>${esc(st.data.club.name)}</h2><button class="pill" id="out">Salir</button></header>`;
   const body = { pos: posView, duelo: dueloView, pagos: pagosView, admin: adminView }[st.view]();
   root.classList.toggle('wide', st.view === 'admin');
   root.innerHTML = head + body + '<p class="foot">Hecho por DG Soluciones IT</p>';
