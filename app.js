@@ -5,6 +5,8 @@ import { rank, gapToNext } from './lib/ranking.js';
 import { h2h, winProbability } from './lib/h2h.js';
 import { validateMatch, summary } from './lib/sets.js';
 import { detectDevice } from './lib/device.js';
+import { eloHistory, playerStats } from './lib/perfil.js';
+import { logros } from './lib/logros.js';
 import { findDuplicate, validateReceipt } from './lib/payments.js';
 import { exportBackup, toCsv } from './lib/backup.js';
 import { kpis, monthlyIncome, lastMonths, debtors, waReminder } from './lib/dashboard.js';
@@ -66,10 +68,10 @@ function render() {
   const t = [['pos', 'Posiciones'], ['duelo', 'Duelo'], ['pagos', 'Pagos']];
   if (isStaff()) t.push(['admin', 'Tablero']);
   tabs.hidden = false; tabs.style.setProperty('--n', t.length);
-  tabs.innerHTML = t.map(([k, l]) => `<a href="#" data-v="${k}" ${st.view === k ? 'aria-current="page"' : ''}>${l}</a>`).join('');
+  tabs.innerHTML = t.map(([k, l]) => `<a href="#" data-v="${k}" ${(st.view === 'perfil' ? 'pos' : st.view) === k ? 'aria-current="page"' : ''}>${l}</a>`).join('');
   tabs.querySelectorAll('a').forEach(a => a.onclick = e => { e.preventDefault(); st.view = a.dataset.v; render(); });
   const head = `${st.api.mode === 'demo' ? '<p class="demo-b">Demo con datos de ejemplo</p>' : ''}<header class="top"><img src="logo-club.png" alt="" width="36" height="36"><h2>${esc(st.data.club.name)}</h2><button class="pill" id="out">Salir</button></header>`;
-  const body = { pos: posView, duelo: dueloView, pagos: pagosView, admin: adminView }[st.view]();
+  const body = { pos: posView, duelo: dueloView, pagos: pagosView, admin: adminView, perfil: perfilView }[st.view]();
   root.classList.toggle('wide', st.view === 'admin');
   root.innerHTML = head + body + '<p class="foot">Hecho por DG Soluciones IT</p>';
   $('#out').onsubmit = null;
@@ -90,10 +92,66 @@ function posView() {
   return `${meCard}<div class="chips mt" role="group" aria-label="Categoría">
     <button class="chip" data-c="" ${!st.cat ? 'aria-pressed="true"' : ''}>Todos</button>
     ${cats.map(c => `<button class="chip" data-c="${esc(c)}" ${st.cat === c ? 'aria-pressed="true"' : ''}>${esc(c)}</button>`).join('')}</div>
-    <ol class="rank mt">${list.map((p, i) => `<li class="row ${st.mine?.id === p.id ? 'is-me' : ''}"><span class="p">${i + 1}</span><span class="av">${esc(p.name.split(' ').map(w => w[0]).slice(0, 2).join(''))}</span>
+    <ol class="rank mt">${list.map((p, i) => `<li class="row ${st.mine?.id === p.id ? 'is-me' : ''}" data-pid="${esc(p.id)}" tabindex="0" role="link" aria-label="Ver perfil de ${esc(p.name)}"><span class="p">${i + 1}</span><span class="av">${esc(p.name.split(' ').map(w => w[0]).slice(0, 2).join(''))}</span>
       <span><span class="nm">${esc(p.name)}</span><span class="ct">${esc(p.category ?? '')} · ${st.stats[p.id]?.played ?? 0} partidos</span></span><span class="sc num"><b>${p.elo}</b></span></li>`).join('')}</ol>`;
 }
-bind.pos = () => document.querySelectorAll('.chip').forEach(c => c.onclick = () => { st.cat = c.dataset.c; render(); });
+bind.pos = () => {
+  document.querySelectorAll('.chip').forEach(c => c.onclick = () => { st.cat = c.dataset.c; render(); });
+  document.querySelectorAll('[data-pid]').forEach(r => { const go = () => { st.pid = r.dataset.pid; st.vs = ''; st.view = 'perfil'; scrollTo(0, 0); render(); }; r.onclick = go; r.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } }; });
+};
+
+// ---- Perfil del jugador
+const COL_YO = '#3987e5', COL_RIVAL = '#d95926';
+function eloChart(series) {
+  const W = 340, H = 170, L = 38, R = 10, T = 12, B = 22;
+  const pts = series.flatMap(s => s.h);
+  const fechas = pts.map(e => e.date && +new Date(e.date)).filter(Boolean);
+  if (!fechas.length) return '<p class="muted">Todavía no hay partidos para graficar.</p>';
+  const t0 = Math.min(...fechas) - 864e5, t1 = Math.max(...fechas);
+  const lo = Math.floor((Math.min(...pts.map(e => e.elo)) - 10) / 10) * 10, hi = Math.ceil((Math.max(...pts.map(e => e.elo)) + 10) / 10) * 10;
+  const X = d => L + ((d ? +new Date(d) : t0) - t0) / Math.max(1, t1 - t0) * (W - L - R), Y = v => T + (hi - v) / Math.max(1, hi - lo) * (H - T - B);
+  const grid = [lo, Math.round((lo + hi) / 2), hi].map(v => `<line x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}" stroke="currentColor" opacity=".15"/><text x="${L - 6}" y="${Y(v) + 4}" text-anchor="end" font-size="11" fill="currentColor" opacity=".7">${v}</text>`).join('');
+  const lines = series.map(s => `<polyline fill="none" stroke="${s.color}" stroke-width="2.5" stroke-linejoin="round" points="${s.h.map(e => `${X(e.date).toFixed(1)},${Y(e.elo).toFixed(1)}`).join(' ')}"/>` +
+    s.h.map(e => `<circle cx="${X(e.date).toFixed(1)}" cy="${Y(e.elo).toFixed(1)}" r="3.2" fill="${s.color}"/>`).join('') +
+    `<text x="${Math.min(W - R - 2, X(s.h.at(-1).date)).toFixed(1)}" y="${(Y(s.h.at(-1).elo) - 8).toFixed(1)}" text-anchor="end" font-size="12" font-weight="700" fill="${s.color}">${s.h.at(-1).elo}</text>`).join('');
+  const f = d => new Date(d).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' });
+  return `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="Evolución del ELO">${grid}${lines}
+    <text x="${L}" y="${H - 5}" font-size="11" fill="currentColor" opacity=".7">${f(t0 + 864e5)}</text><text x="${W - R}" y="${H - 5}" text-anchor="end" font-size="11" fill="currentColor" opacity=".7">${f(t1)}</text></svg>`;
+}
+function perfilView() {
+  const P = st.players.find(p => p.id === st.pid);
+  if (!P) { st.view = 'pos'; return posView(); }
+  const act = rank(st.players), pos = act.findIndex(p => p.id === P.id) + 1;
+  const ms = st.data.matches, hist = eloHistory(P.id, st.players, ms), stt = playerStats(P.id, ms);
+  const lg = logros({ id: P.id, matches: ms, history: hist, position: pos || null });
+  const R = st.vs ? st.players.find(p => p.id === st.vs) : null;
+  const hR = R ? eloHistory(R.id, st.players, ms) : null, sR = R ? playerStats(R.id, ms) : null;
+  const lgR = R ? logros({ id: R.id, matches: ms, history: hR, position: act.findIndex(p => p.id === R.id) + 1 || null }) : null;
+  const ini = n => n.split(' ').map(w => w[0]).slice(0, 2).join('');
+  const first = n => n.split(' ')[0];
+  const racha = stt.streak > 0 ? `🔥 ${stt.streak} ganados seguidos` : stt.streak < 0 ? `${-stt.streak} perdidos seguidos` : 'Sin racha';
+  const fila = (nom, a, b, mayor = true) => { const w = a === b ? 0 : (a > b) === mayor ? 1 : -1; return `<tr><th scope="row">${nom}</th><td class="${w > 0 ? 'win' : ''}">${a}</td><td class="${w < 0 ? 'win' : ''}">${b}</td></tr>`; };
+  const cmp = R ? `<section class="card"><h3>${esc(first(P.name))} vs ${esc(first(R.name))}</h3>
+    <table class="cmp"><thead><tr><th></th><th style="color:${COL_YO}">${esc(first(P.name))}</th><th style="color:${COL_RIVAL}">${esc(first(R.name))}</th></tr></thead><tbody>
+    ${fila('ELO', P.elo, R.elo)}${fila('Partidos', stt.played, sR.played)}${fila('% victorias', stt.winPct + '%', sR.winPct + '%')}${fila('Mejor racha', stt.bestStreak, sR.bestStreak)}${fila('Sets a favor', stt.setsFor, sR.setsFor)}${fila('Logros', lg.filter(l => l.ganado).length, lgR.filter(l => l.ganado).length)}</tbody></table></section>` : '';
+  const opts = ['<option value="">Elegí con quién compararte</option>', ...act.filter(p => p.id !== P.id).map(p => `<option value="${esc(p.id)}" ${p.id === st.vs ? 'selected' : ''}>${esc(p.name)}</option>`)].join('');
+  const gan = lg.filter(l => l.ganado).length;
+  return `<div class="stack"><button class="btn sm ghost back" id="back">← Volver a posiciones</button>
+    <section class="card phead"><span class="av big">${esc(ini(P.name))}</span><div><h3>${esc(P.name)}</h3><p class="muted">${esc(P.category ?? '')} · puesto ${pos || '—'} · <b class="num">${P.elo}</b> de ELO</p><p class="mt">${racha}</p></div></section>
+    <section class="card"><div class="mini">
+      <div><b class="num">${stt.played}</b><span>partidos</span></div><div><b class="num">${stt.winPct}%</b><span>victorias</span></div>
+      <div><b class="num">${stt.setsFor}-${stt.setsAgainst}</b><span>sets</span></div><div><b class="num">${stt.pf + stt.pc ? stt.pf + '-' + stt.pc : '—'}</b><span>puntos</span></div></div></section>
+    <section class="card"><h3>Evolución del ELO</h3>${R ? `<p class="legend2"><i style="background:${COL_YO}"></i>${esc(first(P.name))} <i style="background:${COL_RIVAL}"></i>${esc(first(R.name))}</p>` : ''}
+      ${eloChart([{ h: hist, color: COL_YO }, ...(R ? [{ h: hR, color: COL_RIVAL }] : [])])}
+      <details class="mt"><summary>Ver como tabla</summary><table class="cmp"><tbody>${hist.slice(1).map(e => `<tr><td>${esc(fdate(e.date))}</td><td>${e.sets} ${e.won ? '✔' : '✘'}</td><td>${e.elo}</td></tr>`).join('') || '<tr><td>Sin partidos</td></tr>'}</tbody></table></details>
+      <label class="mt">Compararme con<select id="vs">${opts}</select></label></section>
+    ${cmp}
+    <section class="card"><h3>Logros <span class="muted">${gan} de ${lg.length}</span></h3><div class="logros">${lg.map(l => `<div class="logro ${l.ganado ? 'on' : ''}" title="${esc(l.desc)}"><span class="ico" aria-hidden="true">${l.icono}</span><b>${esc(l.nombre)}</b><small>${l.ganado ? '¡Conseguido!' : esc(l.desc)}</small>${!l.ganado && l.progreso ? `<span class="prog"><i style="width:${Math.round(l.progreso[0] / l.progreso[1] * 100)}%"></i></span><small>${l.progreso[0]}/${l.progreso[1]}</small>` : ''}</div>`).join('')}</div></section></div>`;
+}
+bind.perfil = () => {
+  $('#back').onclick = () => { st.view = 'pos'; render(); };
+  $('#vs').onchange = e => { st.vs = e.target.value; render(); };
+};
 
 // ---- Duelo
 function dueloView() {
