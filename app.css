@@ -26,3 +26,4 @@ form.f input,form.f select{background:var(--surface-2);border:1px solid var(--li
 .tb{width:100%;border-collapse:collapse;margin-top:8px;font-size:13px}.tb th,.tb td{text-align:right;padding:6px 4px;border-top:1px solid var(--line)}.tb th:first-child,.tb td:first-child{text-align:left}
 @media(min-width:760px){.app.wide .stack{grid-template-columns:1fr 1fr}.app.wide .stack>.monthbar,.app.wide .stack>.tiles{grid-column:1/-1}}
 @media(min-width:760px){.app.wide .stack{align-items:start}}
+.tile .big{white-space:nowrap;font-size:30px}
