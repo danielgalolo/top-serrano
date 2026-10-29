@@ -3,6 +3,8 @@ import { createApi } from './api.js';
 import { applyMatches } from './lib/elo.js';
 import { rank, gapToNext } from './lib/ranking.js';
 import { h2h, winProbability } from './lib/h2h.js';
+import { validateMatch, summary } from './lib/sets.js';
+import { detectDevice } from './lib/device.js';
 import { findDuplicate, validateReceipt } from './lib/payments.js';
 import { exportBackup, toCsv } from './lib/backup.js';
 import { kpis, monthlyIncome, lastMonths, debtors, waReminder } from './lib/dashboard.js';
@@ -15,6 +17,9 @@ const fdate = d => { if (!d) return ''; const m = /^(\d{4})-(\d{2})-(\d{2})/.exe
 const toast = m => { const t = $('#toast'); t.textContent = m; t.classList.add('on'); setTimeout(() => t.classList.remove('on'), 2800); };
 
 const params = new URLSearchParams(location.search);
+// Layout según dispositivo: celular (barra abajo) o tablet/PC (menú lateral, 2 columnas). ?device=phone|tablet|desktop fuerza uno.
+const setDevice = () => { document.documentElement.dataset.device = detectDevice({ width: innerWidth, height: innerHeight, touch: matchMedia('(pointer:coarse)').matches || navigator.maxTouchPoints > 0, override: params.get('device') }); };
+setDevice(); addEventListener('resize', setDevice); addEventListener('orientationchange', setDevice);
 const st = { api: null, user: null, data: null, view: 'pos', cat: '', a: null, b: null, month: new Date().toISOString().slice(0, 7) };
 const isStaff = () => ['tesorero', 'admin'].includes(st.data?.role);
 
@@ -100,27 +105,42 @@ function dueloView() {
   if (A && B && A.id !== B.id) {
     const h = h2h(st.data.matches, A.id, B.id), pa = winProbability(A.elo, B.elo, h);
     res = `<section class="card"><h3>${esc(A.name)} vs ${esc(B.name)}</h3>
-      <p class="num mt"><b>${h.wa}</b> - <b>${h.wb}</b> <span class="muted">en ${h.total} partidos</span></p>
+      <p class="num mt"><b>${h.wa}</b> - <b>${h.wb}</b> <span class="muted">en ${h.total} ${h.total === 1 ? "partido" : "partidos"}</span></p>
       <p class="mt">Chances: ${esc(A.name)} <b>${pa}%</b> · ${esc(B.name)} <b>${100 - pa}%</b></p>
       <div class="bar2 mt"><i style="width:${pa}%"></i></div>
-      <p class="muted mt">${h.total ? 'Últimos: ' + h.last.map(g => `${g.sets} ${g.a_won ? '✔' : '✘'}`).join(' · ') : 'Todavía no jugaron entre ellos'}</p></section>`;
+      ${h.pf + h.pc ? `<p class="muted mt">Puntos: ${esc(A.name.split(' ')[0])} <b>${h.pf}</b> · ${esc(B.name.split(' ')[0])} <b>${h.pc}</b></p>` : ''}
+      <div class="mt">${h.total ? h.last.map(g => `<p class="lastg"><b>${g.sets}</b> ${g.a_won ? '✔' : '✘'} <span class="muted">${g.parciales ? g.parciales.map(([x, y]) => x + '-' + y).join(' · ') : ''}</span></p>`).join('') : '<p class="muted">Todavía no jugaron entre ellos</p>'}</div></section>`;
   }
-  const rec = ['tesorero', 'admin', 'comision'].includes(st.data.role) && A && B && A.id !== B.id ? `<form class="f card mt" id="mf"><h3>Cargar resultado</h3>
-    <div class="g2" style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><label>Sets ${esc(A.name.split(' ')[0])}<input name="sa" type="number" min="0" max="5" required></label><label>Sets ${esc(B.name.split(' ')[0])}<input name="sb" type="number" min="0" max="5" required></label></div>
-    <button class="btn">Guardar partido</button></form>` : '';
+  const nA = esc(A?.name.split(' ')[0] ?? 'A'), nB = esc(B?.name.split(' ')[0] ?? 'B');
+  const rows = n => Array.from({ length: n }, (_, i) => `<div class="setrow"><span class="muted">Set ${i + 1}</span><input inputmode="numeric" pattern="[0-9]*" name="a${i}" aria-label="Puntos ${nA} set ${i + 1}"><span>-</span><input inputmode="numeric" pattern="[0-9]*" name="b${i}" aria-label="Puntos ${nB} set ${i + 1}"></div>`).join('');
+  const rec = ['tesorero', 'admin', 'comision'].includes(st.data.role) && A && B && A.id !== B.id ? `<form class="f card mt" id="mf"><h3>Cargar resultado por set</h3>
+    <label>Formato<select name="bo"><option value="3">Al mejor de 3</option><option value="5" selected>Al mejor de 5</option><option value="7">Al mejor de 7</option></select></label>
+    <div class="setgrid"><span></span><b>${nA}</b><span></span><b>${nB}</b></div><div id="setrows">${rows(5)}</div>
+    <p class="muted" id="setmsg" role="status">Cargá los puntos de cada set (se juega a 11, con 2 de ventaja).</p>
+    <button class="btn" id="msave" disabled>Guardar partido</button></form>` : '';
   return `<div class="stack"><form class="f"><label>Jugador A<select id="sa">${opt(st.a)}</select></label><label>Jugador B<select id="sb">${opt(st.b)}</select></label></form>${res}${rec}</div>`;
 }
 bind.duelo = () => {
   $('#sa').onchange = e => { st.a = e.target.value; render(); };
   $('#sb').onchange = e => { st.b = e.target.value; render(); };
   const mf = $('#mf');
-  if (mf) mf.onsubmit = async e => {
-    e.preventDefault(); const f = new FormData(mf);
-    const sa = +f.get('sa'), sb = +f.get('sb');
-    if (sa === sb) return toast('No puede haber empate');
-    try { const m = await st.api.addMatch({ club_id: st.data.club.id, a_id: st.a, b_id: st.b, sets_a: sa, sets_b: sb, created_by: st.user.id }); if (!st.data.matches.includes(m)) st.data.matches.push(m); await reloadKeep('duelo'); toast('Partido guardado'); }
-    catch (er) { toast(er.message); }
-  };
+  if (mf) {
+    const read = () => {
+      const bo = +mf.bo.value; const sets = [];
+      for (let i = 0; i < bo; i++) { const a = mf['a' + i].value.trim(), b = mf['b' + i].value.trim(); if (a === '' && b === '') continue; sets.push([+a, +b]); }
+      return { bo, sets, v: sets.length ? validateMatch(sets, bo) : { ok: false, error: 'Cargá los puntos de cada set (se juega a 11, con 2 de ventaja).' } };
+    };
+    const refresh = () => { const { v, sets } = read(); $('#msave').disabled = !v.ok;
+      $('#setmsg').textContent = v.ok ? `Resultado: ${v.sets_a}-${v.sets_b} en sets · puntos ${summary(sets).pf}-${summary(sets).pc}` : v.error; };
+    mf.oninput = refresh;
+    mf.bo.onchange = () => { const bo = +mf.bo.value; mf.querySelectorAll('.setrow').forEach((r, i) => { r.hidden = i >= bo; }); refresh(); };
+    mf.bo.onchange();
+    mf.onsubmit = async e => {
+      e.preventDefault(); const { v, sets } = read(); if (!v.ok) return toast(v.error);
+      try { const m = await st.api.addMatch({ club_id: st.data.club.id, a_id: st.a, b_id: st.b, sets_a: v.sets_a, sets_b: v.sets_b, set_scores: sets, created_by: st.user.id }); if (!st.data.matches.includes(m)) st.data.matches.push(m); await reloadKeep('duelo'); toast('Partido guardado'); }
+      catch (er) { toast(er.message); }
+    };
+  }
 };
 async function reloadKeep(v) { await loadAll(); st.view = v; render(); }
 

@@ -29,3 +29,20 @@ form.f input,form.f select{background:var(--surface-2);border:1px solid var(--li
 .tile .big{white-space:nowrap;font-size:30px}
 .demo-b{margin:0 -16px;padding:6px 16px;background:#F2C230;color:#1b1500;font-size:13px;font-weight:600;text-align:center}
 a.btn.sm{text-decoration:none}
+.setgrid{display:grid;grid-template-columns:48px 1fr 14px 1fr;gap:8px;margin-top:8px;text-align:center}
+.setrow{display:grid;grid-template-columns:48px 1fr 14px 1fr;gap:8px;align-items:center;margin-top:6px;text-align:center}
+.setrow[hidden]{display:none}.setrow input{text-align:center;font-size:18px;min-width:0}
+.lastg{margin:4px 0}
+
+/* ---------- tablet y PC: menú lateral + 2 columnas ---------- */
+html[data-device=tablet] body,html[data-device=desktop] body{padding-left:148px}
+html[data-device=tablet] .app,html[data-device=desktop] .app{width:min(100%,1100px);padding:0 28px 40px;box-shadow:none;background:transparent;font-size:17px}
+html[data-device=tablet] .tabbar,html[data-device=desktop] .tabbar{left:0;top:0;bottom:0;transform:none;width:148px;display:flex;flex-direction:column;gap:6px;
+  padding:20px 12px;border-top:0;border-right:1px solid var(--line);background:rgba(14,19,16,.98)}
+html[data-device=tablet] .tabbar a,html[data-device=desktop] .tabbar a{flex-direction:row;justify-content:flex-start;padding:14px 12px;min-height:48px;font-size:16px}
+html[data-device=tablet] .tabbar a[aria-current=page],html[data-device=desktop] .tabbar a[aria-current=page]{background:var(--surface)}
+html[data-device=tablet] .rank,html[data-device=desktop] .rank{display:grid;grid-template-columns:1fr 1fr;gap:8px;list-style:none;padding:0}
+html[data-device=tablet] .app .stack,html[data-device=desktop] .app .stack{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+html[data-device=tablet] .app .stack>.monthbar,html[data-device=tablet] .app .stack>.tiles,html[data-device=desktop] .app .stack>.monthbar,html[data-device=desktop] .app .stack>.tiles{grid-column:1/-1}
+html[data-device=tablet] input,html[data-device=tablet] select,html[data-device=tablet] .btn,html[data-device=desktop] input,html[data-device=desktop] select,html[data-device=desktop] .btn{min-height:48px}
+html[data-device=tablet] .app.wide,html[data-device=desktop] .app.wide{width:min(100%,1180px)}
