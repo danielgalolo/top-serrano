@@ -3,8 +3,9 @@ import { createApi } from './api.js';
 import { applyMatches } from './lib/elo.js';
 import { rank, gapToNext } from './lib/ranking.js';
 import { h2h, winProbability } from './lib/h2h.js';
-import { findDuplicate, upToDate, validateReceipt } from './lib/payments.js';
+import { findDuplicate, validateReceipt } from './lib/payments.js';
 import { exportBackup, toCsv } from './lib/backup.js';
+import { kpis, monthlyIncome, lastMonths, debtors, waReminder } from './lib/dashboard.js';
 
 const $ = s => document.querySelector(s);
 const root = $('#root'), tabs = $('#tabs');
@@ -55,12 +56,13 @@ function loginView() {
 
 function render() {
   const t = [['pos', 'Posiciones'], ['duelo', 'Duelo'], ['pagos', 'Pagos']];
-  if (isStaff()) t.push(['admin', 'Admin']);
+  if (isStaff()) t.push(['admin', 'Tablero']);
   tabs.hidden = false; tabs.style.setProperty('--n', t.length);
   tabs.innerHTML = t.map(([k, l]) => `<a href="#" data-v="${k}" ${st.view === k ? 'aria-current="page"' : ''}>${l}</a>`).join('');
   tabs.querySelectorAll('a').forEach(a => a.onclick = e => { e.preventDefault(); st.view = a.dataset.v; render(); });
   const head = `<header class="top"><img src="logo-club.png" alt="" width="36" height="36"><h2>${esc(st.data.club.name)}</h2><button class="pill" id="out">Salir</button></header>`;
   const body = { pos: posView, duelo: dueloView, pagos: pagosView, admin: adminView }[st.view]();
+  root.classList.toggle('wide', st.view === 'admin');
   root.innerHTML = head + body + '<p class="foot">Hecho por DG Soluciones IT</p>';
   $('#out').onsubmit = null;
   $('#out').onclick = async () => { await st.api.signOut(); st.user = null; loginView(); };
@@ -165,25 +167,64 @@ bind.pagos = () => {
   });
 };
 
-// ---- Admin
+// ---- Tablero del tesorero
+const CONC_COLOR = { cuota: '#3987e5', producto: '#d95926', torneo: '#199e70' };
+const MESN = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+const mlabel = m => MESN[Number(m.slice(5, 7)) - 1] + (m.endsWith('-01') ? ' ' + m.slice(2, 4) : '');
+const shiftMonth = (m, d) => { const [y, n] = m.split('-').map(Number); const t = y * 12 + (n - 1) + d; return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, '0')}`; };
+
+function incomeChart(rows) {
+  const W = 400, H = 190, L = 8, B = 24, T = 18, bw = 34;
+  const max = Math.max(1, ...rows.map(r => r.total));
+  const step = (W - L * 2) / rows.length;
+  const y = v => T + (H - T - B) * (1 - v / max);
+  const bars = rows.map((r, i) => {
+    const x = L + step * i + (step - bw) / 2; let acc = 0;
+    const segs = ['cuota', 'producto', 'torneo'].map(c => {
+      if (!r[c]) return ''; const y1 = y(acc + r[c]), y0 = y(acc); acc += r[c];
+      return `<rect x="${x}" y="${y1 + 1}" width="${bw}" height="${Math.max(0, y0 - y1 - 2)}" rx="3" fill="${CONC_COLOR[c]}"><title>${esc(mlabel(r.month))} · ${c}: ${money(r[c])}</title></rect>`;
+    }).join('');
+    const tot = r.total ? `<text x="${x + bw / 2}" y="${y(r.total) - 5}" text-anchor="middle" fill="#AEBBB3" font-size="10">${esc(money(r.total).replace('$ ', '$'))}</text>` : '';
+    return segs + tot + `<text x="${x + bw / 2}" y="${H - 7}" text-anchor="middle" fill="#7C8C82" font-size="11">${esc(mlabel(r.month))}</text>`;
+  }).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Ingresos aprobados por mes y concepto" style="width:100%;height:auto"><line x1="${L}" x2="${W - L}" y1="${H - B}" y2="${H - B}" stroke="#27322B"/>${bars}</svg>`;
+}
+
 function adminView() {
-  const u = upToDate(st.players, st.data.payments, st.month);
-  const ing = st.data.payments.filter(p => p.status === 'aprobado' && String(p.paid_at).startsWith(st.month)).reduce((s, p) => s + p.amount_cents, 0);
-  const pend = st.data.payments.filter(p => p.status === 'pendiente').length;
-  return `<div class="stack"><section class="card"><h3>Mes ${esc(st.month)}</h3>
-    <p class="mt">Cuotas al día: <b>${u.alDia}/${u.total}</b> (${u.pct}%)</p><div class="bar2 mt"><i style="width:${u.pct}%"></i></div>
-    <p class="mt">Ingresos aprobados: <b>${money(ing)}</b></p><p>Pagos por revisar: <b>${pend}</b></p></section>
-    <section class="card"><h3>Stock</h3>${st.data.products.map(p => `<div class="lr"><span>${esc(p.name)}</span><span class="num">${p.stock} u · ${money(p.price_cents)}</span></div>`).join('') || '<p class="muted">Sin productos</p>'}</section>
-    <section class="card"><h3>Copia de seguridad</h3><p class="muted">Bajala seguido y guardala en tu PC.</p>
+  const m = st.month, k = kpis(st.players, st.data.payments, m);
+  const rows = monthlyIncome(st.data.payments, lastMonths(m, 6));
+  const dbt = debtors(st.players, st.data.payments, m);
+  const delta = k.deltaPct == null ? 'sin mes anterior para comparar' : `${k.deltaPct >= 0 ? '▲' : '▼'} ${Math.abs(k.deltaPct)}% vs mes anterior`;
+  const tile = (lab, val, sub, extra = '') => `<div class="card tile"><div class="muted">${lab}</div><div class="big num">${val}</div><div class="sub2">${sub}</div>${extra}</div>`;
+  const legend = Object.entries(CONC_COLOR).map(([c, col]) => `<span class="lg"><i style="background:${col}"></i>${c}</span>`).join('');
+  const tbl = `<table class="tb"><tr><th>Mes</th><th>Cuotas</th><th>Productos</th><th>Torneos</th><th>Total</th></tr>${rows.map(r => `<tr><td>${esc(mlabel(r.month))}</td><td>${money(r.cuota)}</td><td>${money(r.producto)}</td><td>${money(r.torneo)}</td><td><b>${money(r.total)}</b></td></tr>`).join('')}</table>`;
+  return `<div class="stack"><div class="monthbar"><button class="btn sm ghost" id="mp" aria-label="Mes anterior">‹</button><h2>${esc(mlabel(m))} ${esc(m.slice(0, 4))}</h2><button class="btn sm ghost" id="mn" aria-label="Mes siguiente" ${m >= new Date().toISOString().slice(0, 7) ? 'disabled' : ''}>›</button></div>
+  <div class="tiles">
+    ${tile('Cuotas al día', `${k.alDia}/${k.total}`, `${k.pct}% de los socios`, `<div class="bar2 mt"><i style="width:${k.pct}%"></i></div>`)}
+    ${tile('Ingresos del mes', money(k.ingresos), delta)}
+    ${tile('Por revisar', k.pendientes, k.pendientes ? '<a href="#" id="gp" class="lnk">Ir a aprobar</a>' : 'Todo al día')}
+    ${tile('Sin cuota', dbt.length, dbt.length ? 'Lista abajo' : 'Nadie debe')}
+  </div>
+  <section class="card"><h3>Ingresos de los últimos 6 meses</h3><p class="sub">Solo pagos aprobados, por fecha de pago</p>
+    <div class="legend2">${legend}</div><div id="chart">${incomeChart(rows)}</div>
+    <details class="mt"><summary class="muted">Ver como tabla</summary>${tbl}</details></section>
+  <section class="card"><h3>Quién no pagó la cuota (${dbt.length})</h3>
+    ${dbt.map(p => `<div class="lr"><span>${esc(p.name)} <span class="muted">${esc(p.category ?? '')}</span></span><a class="btn sm ghost" target="_blank" rel="noopener" href="${waReminder(p, m, st.data.club.name)}">Recordar</a></div>`).join('') || '<p class="muted">Todos al día</p>'}
+    <p class="muted mt">El botón abre WhatsApp con el mensaje armado; elegís el contacto.</p></section>
+  <section class="card"><h3>Stock</h3>${st.data.products.map(p => `<div class="lr"><span>${esc(p.name)}</span><span class="num">${p.stock} u · ${money(p.price_cents)}</span></div>`).join('') || '<p class="muted">Sin productos</p>'}</section>
+  <section class="card"><h3>Copia de seguridad</h3><p class="muted">Bajala seguido y guardala en tu PC.</p>
     <div class="actions mt"><button class="btn sm" id="bj">Bajar copia (JSON)</button><button class="btn sm ghost" id="bc">Planilla de pagos (CSV)</button></div></section></div>`;
 }
 bind.admin = () => {
+  $('#mp').onclick = () => { st.month = shiftMonth(st.month, -1); render(); };
+  $('#mn').onclick = () => { st.month = shiftMonth(st.month, 1); render(); };
+  const gp = $('#gp'); if (gp) gp.onclick = e => { e.preventDefault(); st.view = 'pagos'; render(); };
   const dl = (name, text, type) => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; a.click(); URL.revokeObjectURL(a.href); };
   const day = new Date().toISOString().slice(0, 10);
   $('#bj').onclick = () => dl(`copia-${st.data.club.slug}-${day}.json`, exportBackup({ clubs: [st.data.club], players: st.data.players, matches: st.data.matches, payments: st.data.payments, products: st.data.products }, { club: st.data.club.name }), 'application/json');
   $('#bc').onclick = () => {
-    const rows = st.data.payments.map(p => ({ ...p, jugador: st.players.find(x => x.id === p.player_id)?.name ?? '', monto: p.amount_cents / 100 }));
-    dl(`pagos-${day}.csv`, '﻿' + toCsv(rows, ['paid_at', 'jugador', 'concept', 'monto', 'method', 'status', 'operation_ref']), 'text/csv');
+    const r = st.data.payments.map(p => ({ ...p, jugador: st.players.find(x => x.id === p.player_id)?.name ?? '', monto: p.amount_cents / 100 }));
+    dl(`pagos-${day}.csv`, '﻿' + toCsv(r, ['paid_at', 'jugador', 'concept', 'monto', 'method', 'status', 'operation_ref']), 'text/csv');
   };
 };
 

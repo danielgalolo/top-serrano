@@ -13,3 +13,16 @@ form.f input,form.f select{background:var(--surface-2);border:1px solid var(--li
 .actions{display:flex;gap:8px}
 .foot{text-align:center;color:var(--ink-3);font-size:12px;margin:24px 0 0}
 .bar2{height:8px;border-radius:8px;background:var(--surface-2);overflow:hidden}.bar2>i{display:block;height:100%;background:var(--green)}
+
+.app.wide{width:min(100%,980px)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.tile .big{font:italic 800 34px/1.1 var(--f-head);margin:4px 0}
+.tile .sub2{font-size:13px;color:var(--ink-2)}
+.lnk{color:var(--green-l);text-decoration:underline}
+.monthbar{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.monthbar .btn{width:44px;height:44px;padding:0;font-size:22px}
+.legend2{display:flex;gap:14px;margin:8px 0;font-size:13px;color:var(--ink-2)}
+.lg{display:inline-flex;align-items:center;gap:6px;text-transform:capitalize}.lg i{width:10px;height:10px;border-radius:3px;display:inline-block}
+.tb{width:100%;border-collapse:collapse;margin-top:8px;font-size:13px}.tb th,.tb td{text-align:right;padding:6px 4px;border-top:1px solid var(--line)}.tb th:first-child,.tb td:first-child{text-align:left}
+@media(min-width:760px){.app.wide .stack{grid-template-columns:1fr 1fr}.app.wide .stack>.monthbar,.app.wide .stack>.tiles{grid-column:1/-1}}
+@media(min-width:760px){.app.wide .stack{align-items:start}}
