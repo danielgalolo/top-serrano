@@ -1,0 +1,10 @@
+{
+  "name": "Top Serrano · App del club",
+  "short_name": "Top Serrano",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0E1310",
+  "theme_color": "#0E1310",
+  "lang": "es-AR",
+  "icons": [{ "src": "logo-club.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }]
+}
